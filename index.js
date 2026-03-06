@@ -9,7 +9,7 @@ const P = require('pino');
 
 // --- الإعدادات ---
 const ADMIN_NUMBER = '967775298782@s.whatsapp.net'; // رقمك الشخصي (الأدمن)
-const BOT_NUMBER = '967712538107'; // الرقم الذي سيتم ربط البوت به (رقم البوت)
+const BOT_NUMBER = '967712538107'; // رقم البوت (بدون +)
 
 let storeSettings = {
     isOpen: true,
@@ -18,19 +18,19 @@ let storeSettings = {
 };
 
 async function startLuffyBot() {
-    // حفظ الجلسة في مجلد auth_info
+    // 1. إعداد حالة الاتصال وحفظ الجلسة
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
         version,
         auth: state,
-        printQRInTerminal: false, // سنستخدم الكود النصي بدلاً من الباركود
+        printQRInTerminal: false,
         logger: P({ level: 'silent' }),
-        browser: ["Ubuntu", "Chrome", "20.0.04"]
+        browser: ["Ubuntu", "Chrome", "20.0.04"] // ضروري لتجنب مشاكل الربط
     });
 
-    // --- طلب كود الربط (Pairing Code) ---
+    // 2. طلب كود الربط (Pairing Code) إذا لم يكن مسجلاً
     if (!sock.authState.creds.registered) {
         console.log('⏳ جاري طلب كود الربط للرقم: ' + BOT_NUMBER);
         setTimeout(async () => {
@@ -39,40 +39,42 @@ async function startLuffyBot() {
                 console.log('---------------------------------------');
                 console.log('🔥 كود الربط الخاص بك هو:', code);
                 console.log('---------------------------------------');
-                console.log('💡 افتح الواتساب (رقم 712538107) > الأجهزة المرتبطة > ربط برقم هاتف');
+                console.log('💡 افتح واتساب > الأجهزة المرتبطة > ربط برقم هاتف > أدخل الكود أعلاه');
             } catch (error) {
-                console.log('❌ فشل طلب الكود، تأكد أن الرقم صحيح وليس عليه قيود:', error);
+                console.error('❌ فشل طلب الكود. تأكد من أن الرقم صحيح وغير مربوط بجهاز آخر:', error);
             }
-        }, 10000); 
+        }, 10000); // تأخير 10 ثوانٍ لضمان جاهزية الاتصال
     }
 
+    // 3. تحديث البيانات وحفظ الجلسة
     sock.ev.on('creds.update', saveCreds);
 
+    // 4. مراقبة حالة الاتصال
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('🔄 تم إغلاق الاتصال، جاري إعادة المحاولة...', shouldReconnect);
             if (shouldReconnect) startLuffyBot();
         } else if (connection === 'open') {
-            console.log('✅ تم الاتصال بنجاح! البوت (712538107) جاهز للعمل.');
+            console.log('✅ تم الاتصال بنجاح! البوت جاهز الآن.');
         }
     });
 
+    // 5. استقبال الرسائل ومعالجتها
     sock.ev.on('messages.upsert', async m => {
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
 
         const remoteJid = msg.key.remoteJid;
         const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").trim();
-        
-        // التحقق هل المرسل هو أنت (الأدمن)
         const isAdmin = (remoteJid === ADMIN_NUMBER);
 
-        // --- أوامر الإدارة (من رقمك الشخصي 775298782 فقط) ---
+        // --- أوامر الإدارة ---
         if (isAdmin) {
             if (text.startsWith('تحديث السعر ')) {
                 storeSettings.ucPrice = text.replace('تحديث السعر ', '');
-                return await sock.sendMessage(remoteJid, { text: `✅ أبشر يا مدير! تم تحديث سعر الـ UC إلى: ${storeSettings.ucPrice}` });
+                return await sock.sendMessage(remoteJid, { text: `✅ أبشر يا مدير! تم تحديث السعر إلى: ${storeSettings.ucPrice}` });
             }
             if (text === 'اغلاق المحل') {
                 storeSettings.isOpen = false;
@@ -80,15 +82,11 @@ async function startLuffyBot() {
             }
             if (text === 'فتح المحل') {
                 storeSettings.isOpen = true;
-                return await sock.sendMessage(remoteJid, { text: '🔓 تم فتح المحل لاستقبال الزبائن.' });
-            }
-            if (text.startsWith('تحديث الخبر ')) {
-                storeSettings.news = text.replace('تحديث الخبر ', '');
-                return await sock.sendMessage(remoteJid, { text: '📢 تم تحديث الإعلان للزيائن.' });
+                return await sock.sendMessage(remoteJid, { text: '🔓 تم فتح المحل.' });
             }
         }
 
-        // --- ردود الزبائن (لأي شخص يراسل رقم البوت) ---
+        // --- ردود الزبائن ---
         if (text === 'الاسعار' || text === 'أسعار') {
             if (!storeSettings.isOpen) {
                 await sock.sendMessage(remoteJid, { text: "عذراً، المتجر مغلق حالياً. نعود للعمل قريباً! 🏪" });
@@ -100,5 +98,6 @@ async function startLuffyBot() {
     });
 }
 
-// تشغيل البوت
-startLuffyBot();
+// تشغيل البوت والتعامل مع أخطاء البداية
+startLuffyBot().catch(err => console.error("حدث خطأ في التشغيل:", err));
+                
