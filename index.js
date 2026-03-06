@@ -2,30 +2,42 @@ const {
     default: makeWASocket, 
     useMultiFileAuthState, 
     DisconnectReason, 
-    makeInMemoryStore 
+    fetchLatestBaileysVersion 
 } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
-const qrcode = require('qrcode-terminal');
+const P = require('pino');
 
-// رقمك كمسؤول (تم ضبطه بناءً على طلبك)
+// إعدادات البوت الأساسية
 const ADMIN_NUMBER = '967775298782@s.whatsapp.net';
+const MY_PHONE_NUMBER = '967775298782'; // الرقم الذي سيتم ربط البوت به
 
-// ذاكرة مؤقتة للبيانات (تتحدث عبر رسائلك)
 let storeSettings = {
     isOpen: true,
-    ucPrice: "لم يتم تحديد السعر بعد",
-    news: "أهلاً بكم في متجر لوفي الذكي"
+    ucPrice: "لم يحدد",
+    news: "أهلاً بكم في متجر لوفي"
 };
 
 async function startLuffyBot() {
-    // حفظ الجلسة في مجلد 'auth_info' لكي لا يطلب الباركود كل مرة
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+    const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
+        version,
         auth: state,
-        printQRInTerminal: true, // سيعرض الباركود في Logs السيرفر أو الترمكس
-        browser: ["Luffy Store", "Chrome", "1.0.0"]
+        printQRInTerminal: false, // تعطيل الباركود
+        logger: P({ level: 'silent' }),
+        browser: ["Ubuntu", "Chrome", "20.0.04"]
     });
+
+    // --- طريقة الربط عبر الكود النصي ---
+    if (!sock.authState.creds.registered) {
+        setTimeout(async () => {
+            let code = await sock.requestPairingCode(MY_PHONE_NUMBER);
+            console.log('---------------------------------------');
+            console.log('🔥 كود الربط الخاص بك هو:', code);
+            console.log('---------------------------------------');
+        }, 5000);
+    }
 
     sock.ev.on('creds.update', saveCreds);
 
@@ -33,10 +45,9 @@ async function startLuffyBot() {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('تم فصل الاتصال، جاري إعادة المحاولة...', shouldReconnect);
             if (shouldReconnect) startLuffyBot();
         } else if (connection === 'open') {
-            console.log('✅ البوت متصل الآن وجاهز لاستقبال الطلبات!');
+            console.log('✅ تم الاتصال بنجاح! البوت جاهز الآن.');
         }
     });
 
@@ -48,43 +59,30 @@ async function startLuffyBot() {
         const text = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
         const isAdmin = (remoteJid === ADMIN_NUMBER);
 
-        // --- قسم أوامر الأدمن (أنت فقط من يتحكم) ---
         if (isAdmin) {
             if (text.startsWith('تحديث السعر ')) {
                 storeSettings.ucPrice = text.replace('تحديث السعر ', '');
-                return await sock.sendMessage(remoteJid, { text: `✅ أبشر يا مدير! تم تحديث السعر إلى: ${storeSettings.ucPrice}` });
+                await sock.sendMessage(remoteJid, { text: `✅ تم التحديث: ${storeSettings.ucPrice}` });
             }
-
             if (text === 'اغلاق المحل') {
                 storeSettings.isOpen = false;
-                return await sock.sendMessage(remoteJid, { text: '🔒 تم إغلاق استقبال الطلبات بنجاح.' });
+                await sock.sendMessage(remoteJid, { text: '🔒 مغلق' });
             }
-
             if (text === 'فتح المحل') {
                 storeSettings.isOpen = true;
-                return await sock.sendMessage(remoteJid, { text: '🔓 تم فتح المحل، الزبائن يمكنهم رؤية الأسعار الآن.' });
-            }
-
-            if (text.startsWith('تحديث الخبر ')) {
-                storeSettings.news = text.replace('تحديث الخبر ', '');
-                return await sock.sendMessage(remoteJid, { text: '📢 تم تحديث شريط الأخبار للزبائن.' });
+                await sock.sendMessage(remoteJid, { text: '🔓 مفتوح' });
             }
         }
 
-        // --- قسم ردود الزبائن ---
         if (text === 'الاسعار' || text === 'أسعار') {
             if (!storeSettings.isOpen) {
-                await sock.sendMessage(remoteJid, { text: "عذراً منك، المتجر مغلق حالياً. يرجى التواصل معنا لاحقاً. 🏪" });
+                await sock.sendMessage(remoteJid, { text: "المحل مغلق حالياً." });
             } else {
-                const response = `✨ *متجر لوفي الذكي (Luffy Store)* ✨\n\n` +
-                                 `💰 *سعر الشحن الحالي:* ${storeSettings.ucPrice}\n` +
-                                 `📢 *أحدث العروض:* ${storeSettings.news}\n\n` +
-                                 `لطلب الشحن، أجب برقم الطلب أو تواصل مع الإدارة مباشرة.`;
-                await sock.sendMessage(remoteJid, { text: response });
+                await sock.sendMessage(remoteJid, { text: `✨ متجر لوفي ✨\n💰 السعر: ${storeSettings.ucPrice}\n📢 الخبر: ${storeSettings.news}` });
             }
         }
     });
 }
 
 startLuffyBot();
-                                                   
+                                
