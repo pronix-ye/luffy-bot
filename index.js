@@ -6,10 +6,17 @@ const {
 } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const P = require('pino');
+const http = require('http');
+
+// --- سيرفر وهمي لمنع توقف الخدمة ---
+http.createServer((req, res) => {
+  res.write('Luffy Bot is Running!');
+  res.end();
+}).listen(process.env.PORT || 8000);
 
 // --- الإعدادات ---
-const ADMIN_NUMBER = '967775298782@s.whatsapp.net'; // رقمك الشخصي (الأدمن)
-const BOT_NUMBER = '967712538107'; // رقم البوت (بدون +)
+const ADMIN_NUMBER = '967775298782@s.whatsapp.net'; 
+const BOT_NUMBER = '967712538107'; 
 
 let storeSettings = {
     isOpen: true,
@@ -18,7 +25,6 @@ let storeSettings = {
 };
 
 async function startLuffyBot() {
-    // 1. إعداد حالة الاتصال وحفظ الجلسة في مجلد auth_info
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     const { version } = await fetchLatestBaileysVersion();
 
@@ -30,41 +36,32 @@ async function startLuffyBot() {
         browser: ["Ubuntu", "Chrome", "20.0.04"] 
     });
 
-    // 2. طلب كود الربط (Pairing Code) إذا لم يكن مسجلاً
     if (!sock.authState.creds.registered) {
         console.log('⏳ جاري طلب كود الربط للرقم: ' + BOT_NUMBER);
-        
-        // تأخير بسيط للتأكد من استقرار الاتصال بالسيرفر قبل طلب الكود
         setTimeout(async () => {
             try {
                 let code = await sock.requestPairingCode(BOT_NUMBER);
                 console.log('---------------------------------------');
-                // تعديل السطر كما طلبت ليكون بين علامات تنصيص
                 console.log(`🔥 كود الربط الخاص بك هو: "${code}"`);
                 console.log('---------------------------------------');
-                console.log('💡 افتح واتساب > الأجهزة المرتبطة > ربط برقم هاتف > أدخل الكود أعلاه');
             } catch (error) {
-                console.error('❌ فشل طلب الكود. تأكد من أن الرقم صحيح وغير مربوط بجهاز آخر:', error);
+                console.error('❌ فشل طلب الكود:', error);
             }
         }, 10000); 
     }
 
-    // 3. تحديث البيانات وحفظ الجلسة
     sock.ev.on('creds.update', saveCreds);
 
-    // 4. مراقبة حالة الاتصال
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('🔄 تم إغلاق الاتصال، جاري إعادة المحاولة...');
             if (shouldReconnect) startLuffyBot();
         } else if (connection === 'open') {
-            console.log('✅ تم الاتصال بنجاح! البوت جاهز الآن على الرقم 712538107.');
+            console.log('✅ تم الاتصال بنجاح!');
         }
     });
 
-    // 5. استقبال الرسائل ومعالجتها
     sock.ev.on('messages.upsert', async m => {
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
@@ -73,38 +70,19 @@ async function startLuffyBot() {
         const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").trim();
         const isAdmin = (remoteJid === ADMIN_NUMBER);
 
-        // --- أوامر الإدارة (للأدمن فقط) ---
         if (isAdmin) {
             if (text.startsWith('تحديث السعر ')) {
                 storeSettings.ucPrice = text.replace('تحديث السعر ', '');
-                return await sock.sendMessage(remoteJid, { text: `✅ أبشر يا مدير! تم تحديث السعر إلى: ${storeSettings.ucPrice}` });
-            }
-            if (text === 'اغلاق المحل') {
-                storeSettings.isOpen = false;
-                return await sock.sendMessage(remoteJid, { text: '🔒 تم إغلاق استقبال الطلبات.' });
-            }
-            if (text === 'فتح المحل') {
-                storeSettings.isOpen = true;
-                return await sock.sendMessage(remoteJid, { text: '🔓 تم فتح المحل.' });
-            }
-            if (text.startsWith('تحديث الخبر ')) {
-                storeSettings.news = text.replace('تحديث الخبر ', '');
-                return await sock.sendMessage(remoteJid, { text: '📢 تم تحديث الإعلان للزبائن.' });
+                return await sock.sendMessage(remoteJid, { text: `✅ تم تحديث السعر إلى: ${storeSettings.ucPrice}` });
             }
         }
 
-        // --- ردود الزبائن ---
         if (text === 'الاسعار' || text === 'أسعار') {
-            if (!storeSettings.isOpen) {
-                await sock.sendMessage(remoteJid, { text: "عذراً، المتجر مغلق حالياً. نعود للعمل قريباً! 🏪" });
-            } else {
-                const response = `✨ *أسعار شحن UC ببجي* ✨\n\n💰 السعر الحالي: ${storeSettings.ucPrice}\n📢 الخبر: ${storeSettings.news}\n\nللطلب يرجى التواصل مع الإدارة.`;
-                await sock.sendMessage(remoteJid, { text: response });
-            }
+            const response = `✨ *أسعار شحن UC* ✨\n\n💰 السعر: ${storeSettings.ucPrice}\n📢 خبر: ${storeSettings.news}`;
+            await sock.sendMessage(remoteJid, { text: response });
         }
     });
 }
 
-// تشغيل البوت مع معالجة الأخطاء
-startLuffyBot().catch(err => console.error("حدث خطأ في التشغيل الرئيسي:", err));
-                
+startLuffyBot();
+                                                                                          
