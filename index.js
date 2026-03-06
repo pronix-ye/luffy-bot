@@ -18,7 +18,7 @@ let storeSettings = {
 };
 
 async function startLuffyBot() {
-    // 1. إعداد حالة الاتصال وحفظ الجلسة
+    // 1. إعداد حالة الاتصال وحفظ الجلسة في مجلد auth_info
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     const { version } = await fetchLatestBaileysVersion();
 
@@ -27,23 +27,26 @@ async function startLuffyBot() {
         auth: state,
         printQRInTerminal: false,
         logger: P({ level: 'silent' }),
-        browser: ["Ubuntu", "Chrome", "20.0.04"] // ضروري لتجنب مشاكل الربط
+        browser: ["Ubuntu", "Chrome", "20.0.04"] 
     });
 
     // 2. طلب كود الربط (Pairing Code) إذا لم يكن مسجلاً
     if (!sock.authState.creds.registered) {
         console.log('⏳ جاري طلب كود الربط للرقم: ' + BOT_NUMBER);
+        
+        // تأخير بسيط للتأكد من استقرار الاتصال بالسيرفر قبل طلب الكود
         setTimeout(async () => {
             try {
                 let code = await sock.requestPairingCode(BOT_NUMBER);
                 console.log('---------------------------------------');
-                console.log('🔥 كود الربط الخاص بك هو:', code);
+                // تعديل السطر كما طلبت ليكون بين علامات تنصيص
+                console.log(`🔥 كود الربط الخاص بك هو: "${code}"`);
                 console.log('---------------------------------------');
                 console.log('💡 افتح واتساب > الأجهزة المرتبطة > ربط برقم هاتف > أدخل الكود أعلاه');
             } catch (error) {
                 console.error('❌ فشل طلب الكود. تأكد من أن الرقم صحيح وغير مربوط بجهاز آخر:', error);
             }
-        }, 10000); // تأخير 10 ثوانٍ لضمان جاهزية الاتصال
+        }, 10000); 
     }
 
     // 3. تحديث البيانات وحفظ الجلسة
@@ -54,10 +57,10 @@ async function startLuffyBot() {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('🔄 تم إغلاق الاتصال، جاري إعادة المحاولة...', shouldReconnect);
+            console.log('🔄 تم إغلاق الاتصال، جاري إعادة المحاولة...');
             if (shouldReconnect) startLuffyBot();
         } else if (connection === 'open') {
-            console.log('✅ تم الاتصال بنجاح! البوت جاهز الآن.');
+            console.log('✅ تم الاتصال بنجاح! البوت جاهز الآن على الرقم 712538107.');
         }
     });
 
@@ -70,7 +73,7 @@ async function startLuffyBot() {
         const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").trim();
         const isAdmin = (remoteJid === ADMIN_NUMBER);
 
-        // --- أوامر الإدارة ---
+        // --- أوامر الإدارة (للأدمن فقط) ---
         if (isAdmin) {
             if (text.startsWith('تحديث السعر ')) {
                 storeSettings.ucPrice = text.replace('تحديث السعر ', '');
@@ -83,6 +86,10 @@ async function startLuffyBot() {
             if (text === 'فتح المحل') {
                 storeSettings.isOpen = true;
                 return await sock.sendMessage(remoteJid, { text: '🔓 تم فتح المحل.' });
+            }
+            if (text.startsWith('تحديث الخبر ')) {
+                storeSettings.news = text.replace('تحديث الخبر ', '');
+                return await sock.sendMessage(remoteJid, { text: '📢 تم تحديث الإعلان للزبائن.' });
             }
         }
 
@@ -98,6 +105,6 @@ async function startLuffyBot() {
     });
 }
 
-// تشغيل البوت والتعامل مع أخطاء البداية
-startLuffyBot().catch(err => console.error("حدث خطأ في التشغيل:", err));
+// تشغيل البوت مع معالجة الأخطاء
+startLuffyBot().catch(err => console.error("حدث خطأ في التشغيل الرئيسي:", err));
                 
