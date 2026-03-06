@@ -63,7 +63,7 @@ async function startLuffyBot() {
         if (!msg.message || msg.key.fromMe) return;
 
         const remoteJid = msg.key.remoteJid;
-        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
+        const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").trim();
         
         // التحقق هل المرسل هو أنت (الأدمن)
         const isAdmin = (remoteJid === ADMIN_NUMBER);
@@ -84,7 +84,7 @@ async function startLuffyBot() {
             }
             if (text.startsWith('تحديث الخبر ')) {
                 storeSettings.news = text.replace('تحديث الخبر ', '');
-                return await sock.sendMessage(remoteJid, { text: '📢 تم تحديث الإعلان للزبائن.' });
+                return await sock.sendMessage(remoteJid, { text: '📢 تم تحديث الإعلان للزيائن.' });
             }
         }
 
@@ -93,4 +93,12 @@ async function startLuffyBot() {
             if (!storeSettings.isOpen) {
                 await sock.sendMessage(remoteJid, { text: "عذراً، المتجر مغلق حالياً. نعود للعمل قريباً! 🏪" });
             } else {
-                const response = `✨
+                const response = `✨ *أسعار شحن UC ببجي* ✨\n\n💰 السعر الحالي: ${storeSettings.ucPrice}\n📢 الخبر: ${storeSettings.news}\n\nللطلب يرجى التواصل مع الإدارة.`;
+                await sock.sendMessage(remoteJid, { text: response });
+            }
+        }
+    });
+}
+
+// تشغيل البوت
+startLuffyBot();
